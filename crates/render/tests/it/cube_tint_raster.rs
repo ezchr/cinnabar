@@ -379,13 +379,15 @@ fn render_fixture(cache_admission: bool) {
     let materials = gpu.words(&materials, storage);
     let records = gpu.words(&biome_words, storage);
     let tints = gpu.words(&tint_words(), storage);
-    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let animations = gpu.words(
         &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
         storage,
     );
     let frames = gpu.words(&[0, 1], storage);
-    let clock = gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform);
+    let clock = gpu.words(
+        &crate::material_shader::world_uniform_words(&[1, 0.25_f32.to_bits(), 0, 0]),
+        uniform,
+    );
     let streams = gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage);
     let mut atmosphere = [0.0; 32];
     atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
@@ -413,10 +415,6 @@ fn render_fixture(cache_admission: bool) {
         (11, clock.as_entire_binding()),
         (13, streams.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),
-        (
-            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
-        ),
         (20, lightmap.as_entire_binding()),
         (
             material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],

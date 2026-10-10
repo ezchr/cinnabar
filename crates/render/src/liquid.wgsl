@@ -1,15 +1,15 @@
 #import cinnabar::material::{MaterialGpu, materials, positional_material, texture_uv_scale, texture_gradient_scale}
 #import bevy_render::view::View
-#import cinnabar::biome_tint::blended_biome_tint
+#import cinnabar::biome_tint::{world_animation_clock, blended_biome_tint}
 #import cinnabar::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour}
 #ifdef ENHANCED
 #import cinnabar::enhanced_common::CLASS_WATER
-#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position}
+#import cinnabar::enhanced_radiance::block_illumination
+#import cinnabar::enhanced_view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position, enhanced_physical_atmosphere}
 #endif
 
 struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
 // ANIMATION_GPU_LAYOUT
-struct AnimationClockGpu { tick: u32, partial_tick: f32, padding_0: u32, padding_1: u32 }
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
 struct FrameSample { current: u32, next: u32, blend: f32, uv_scale: f32 }
 struct AtmosphereUniform {
@@ -58,11 +58,16 @@ const LIQUID_MATERIAL_MASK: u32 = ~(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BI
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_1) var terrain_gamma_page_1: texture_2d_array<f32>;
 @group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
 @group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(12) var<storage, read> model_templates: array<u32>;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(14) var<storage, read> transparent_refs: array<TransparentDrawRef>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
+#ifdef ENHANCED
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_0) var enhanced_color_page_0: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_COLOR_TEXTURE_BINDING_1) var enhanced_color_page_1: texture_2d_array<f32>;
+@group(0) @binding(ENHANCED_SAMPLER_BINDING) var enhanced_sampler: sampler;
+@group(0) @binding(ENHANCED_TEXTURE_REF_BINDING) var<storage, read> enhanced_texture_refs: array<u32>;
+#endif
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -91,6 +96,7 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0, 1.0);
     }
+    let clock = world_animation_clock();
     let animation = animations[material.animation];
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
     let current = animation_frames[animation.frame_start + current_index];
@@ -254,6 +260,7 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     out.native_light_levels = terrain_light_levels(light_sample);
     out.native_face_shade = face_shade(face_normal(face), (light_sample & 2048u) != 0u);
 #ifdef ENHANCED
+    out.lighting = block_illumination(light_sample);
     out.sky_light = sky_illumination(light_sample);
     out.ambient_occlusion = light_ao_factor((light_sample >> 8u) & 7u);
 #endif
@@ -273,6 +280,18 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
 }
 
 fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>) -> vec4<f32> {
+#ifdef ENHANCED
+    let lookup_index = (texture_ref >> 31u) * 2048u + (texture_ref & 0x7ffu);
+    let authored_ref = enhanced_texture_refs[lookup_index];
+    if (authored_ref != 0xffffffffu) {
+        let authored_page = authored_ref >> 31u;
+        let authored_layer = i32(authored_ref & 0x7ffu);
+        if (authored_page == 0u) {
+            return textureSampleGrad(enhanced_color_page_0, enhanced_sampler, uv, authored_layer, dx, dy);
+        }
+        return textureSampleGrad(enhanced_color_page_1, enhanced_sampler, uv, authored_layer, dx, dy);
+    }
+#endif
     let layer = i32(texture_ref & 0x7ffu);
 #ifdef ENHANCED
     if ((texture_ref >> 31u) == 0u) {
@@ -292,6 +311,33 @@ fn sample_texture_ref(texture_ref: u32, uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f
 }
 
 fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+#ifdef ENHANCED
+    if (enhanced_physical_atmosphere()) { return colour; }
+    let distance_to_camera = distance(world_position, view.world_position);
+    let fog = clamp(
+        (distance_to_camera - atmosphere.fog_color_start.w)
+            / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001),
+        0.0,
+        1.0,
+    );
+    let delta = world_position - view.world_position;
+    let direction = delta / max(length(delta), 1.0e-4);
+    let horizon = smoothstep(-0.3, 0.75, direction.y);
+    let sky = mix(
+        atmosphere.sky_horizon_thunder.rgb,
+        atmosphere.sky_zenith_rain.rgb,
+        smoothstep(0.12, 0.92, horizon),
+    );
+    let storm = atmosphere.sky_horizon_thunder.a;
+    let dusk = atmosphere.sunrise_band.rgb * atmosphere.sunrise_band.a
+        * smoothstep(-0.15, 0.75, direction.y) * 0.32;
+    let fog_colour = mix(
+        atmosphere.fog_color_start.rgb,
+        mix(atmosphere.fog_color_start.rgb, sky, 0.28 + 0.24 * horizon),
+        1.0 - 0.22 * storm,
+    ) + dusk;
+    return mix(colour, fog_colour, smoothstep(0.0, 1.0, fog));
+#else
     let distance_to_camera = distance(world_position, view.world_position);
     let fog = clamp(
         (distance_to_camera - atmosphere.fog_color_start.w)
@@ -300,6 +346,7 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
         1.0,
     );
     return mix(colour, atmosphere.fog_color_start.rgb, fog);
+#endif
 }
 
 #ifndef ENHANCED
@@ -332,10 +379,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
 #ifdef ENHANCED
+    let water_footprint = max(length(dpdx(in.world_position.xz)), length(dpdy(in.world_position.xz)));
     if ((in.surface_class & CLASS_WATER) != 0u) {
         let water = shade_water(sampled.rgb * in.water_tint.rgb, sampled.a * in.water_tint.a, in.normal,
             in.world_position, in.clip_position, in.lighting, in.sky_light,
-            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb);
+            in.ambient_occlusion, atmosphere.sky_zenith_rain.rgb, atmosphere.sky_horizon_thunder.rgb, water_footprint);
         return vec4(apply_distance_fog(water.rgb, in.world_position), water.a);
     }
     let colour = shade_surface(
@@ -347,6 +395,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @loc
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
+        in.normal,
+        vec3(0.0, 0.8, 0.8),
     );
     // The background is fogged by the same transfer, so preserving source
     // alpha composes to one fog application instead of double-counting it.
@@ -382,6 +432,8 @@ fn fragment_depth(in: VertexOutput, @builtin(front_facing) front_facing: bool) -
         in.sky_light,
         in.ambient_occlusion,
         in.surface_class,
+        in.normal,
+        vec3(0.0, 0.8, 0.8),
     );
     return vec4(apply_distance_fog(lit, in.world_position), 1.0);
 #else

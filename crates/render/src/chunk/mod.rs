@@ -99,20 +99,16 @@ mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
+#[cfg(feature = "enhanced")]
+mod resident_coverage;
 mod resource_geometry;
 pub use instance::ChunkRenderInstance;
+#[cfg(feature = "enhanced")]
+pub(crate) use resident_coverage::ChunkResidentCoverage;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;
-
-use constants::{
-    BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
-    FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
-    INDEXED_INDIRECT_BYTES, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE, PACKED_LIQUID_QUAD_BYTES,
-    PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES, PACKED_QUAD_BYTES,
-    PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
-};
 
 #[allow(unused_imports)]
 use api::{
@@ -133,6 +129,13 @@ pub use biome_tints::{
 };
 #[allow(unused_imports)]
 use biome_tints::{ChunkBiomeTintResourceIdentity, MATERIAL_UV_ROTATION_MASK};
+use constants::{
+    BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
+    FALLBACK_BIOME_RECORD, FALLBACK_BIOME_WORDS, GEOMETRY_STREAM_WORD_BYTES,
+    INDEXED_INDIRECT_BYTES, LIQUID_SHADER_HANDLE, MODEL_SHADER_HANDLE, PACKED_LIQUID_QUAD_BYTES,
+    PACKED_MODEL_DRAW_REF_BYTES, PACKED_MODEL_REF_BYTES, PACKED_QUAD_BYTES,
+    PACKED_QUAD_LIGHTING_BYTES, STATIC_QUAD_INDICES,
+};
 use draw::{queue_chunks, queue_transparent_chunks};
 use extract::install_chunk_extraction;
 #[cfg(test)]
@@ -158,7 +161,7 @@ use gpu::bind_groups::{
     biome_tint_gpu_buffer_needs_rebuild, chunk_sampler_descriptor, encode_model_template_words,
     init_chunk_gpu_animation_clock, pack_linear_rgb10, prepare_biome_tint_entries,
     prepare_chunk_animation_clock, prepare_chunk_bind_group, prepare_chunk_biome_tints,
-    prepare_chunk_texture_assets, storage_table_fits, upload_texture_page,
+    prepare_chunk_texture_assets, storage_table_fits,
 };
 #[allow(unused_imports)]
 use gpu::graphics_metadata::{adapter_metadata_field, publish_graphics_runtime_metadata};
@@ -220,8 +223,6 @@ use presentation::frame_probe::{
     submit_presented_frame_probe,
 };
 pub use presentation::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
-#[allow(unused_imports)]
-use presentation::model_witness::ModelWitnessEvidenceState;
 pub use presentation::model_witness::{
     ModelWitnessEvent, ModelWitnessEvidence, ModelWitnessFrameAck, ModelWitnessManifestRecord,
     ModelWitnessRequest, ModelWitnessRequestError,
@@ -245,9 +246,10 @@ use queue::{
 };
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
-    TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
+    EnhancedTextureAssets, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page, greedy_texture_uv,
+    plan_texture_mip_uploads, plan_texture_page_bindings, select_animation_frames,
+    texture_asset_needs_rebuild,
 };
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};

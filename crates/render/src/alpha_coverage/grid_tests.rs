@@ -120,6 +120,26 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
             resource: wgpu::BindingResource::Sampler(&sampler),
         });
     }
+    let texture_refs = gpu.words(
+        &vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS],
+        wgpu::BufferUsages::STORAGE,
+    );
+    if enhanced {
+        for (page, view) in views.iter().enumerate() {
+            bindings.push(wgpu::BindGroupEntry {
+                binding: crate::material_shader::ENHANCED_COLOR_TEXTURE_BINDINGS[page],
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_SAMPLER_BINDING,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        });
+        bindings.push(wgpu::BindGroupEntry {
+            binding: crate::material_shader::ENHANCED_TEXTURE_REF_BINDING,
+            resource: texture_refs.as_entire_binding(),
+        });
+    }
     bindings.push(wgpu::BindGroupEntry {
         binding: 19,
         resource: data.as_entire_binding(),
@@ -171,6 +191,17 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
 }}
 "#
     ));
+    let used = crate::shader_source::bindings_used_by_entry_points(
+        &source,
+        &["grid_vertex", "grid_fragment"],
+        0,
+    );
+    bindings.retain(|resource| used.contains(&resource.binding));
+    assert_eq!(
+        bindings.len(),
+        used.len(),
+        "grid fixture binds exactly its active resources"
+    );
     gpu.render_with_state(
         &source,
         "grid_vertex",

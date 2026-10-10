@@ -72,6 +72,8 @@ impl Plugin for ChunkRenderPlugin {
                 ),
             );
 
+        #[cfg(feature = "enhanced")]
+        app.init_resource::<ChunkResidentCoverage>();
         if app.get_sub_app(RenderApp).is_none() {
             return;
         }
@@ -91,7 +93,7 @@ impl Plugin for ChunkRenderPlugin {
                 path
             )
         );
-        crate::enhanced::load_shader_imports(app);
+        crate::enhanced::plugin::load_shader_imports(app);
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", |source, path| {
             crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
         });

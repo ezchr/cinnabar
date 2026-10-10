@@ -75,6 +75,8 @@ pub enum ActorRigRoute {
     Compiled,
     StaticFallback,
     Diagnostic,
+    /// Participates only in Enhanced directional-light shadow passes.
+    ShadowOnly,
     NoDraw,
 }
 
@@ -514,7 +516,12 @@ impl ActorRigFrameBuilder {
         // ascending order so a coplanar overlay draws after the layers beneath it.
         ordered.sort_by_key(|submission| {
             let identity = submission.input.identity;
-            (identity.layer, page_of(&identity), submission.input.rig)
+            (
+                submission.route == ActorRigRoute::ShadowOnly,
+                identity.layer,
+                page_of(&identity),
+                submission.input.rig,
+            )
         });
         for submission in ordered.drain(..) {
             if let Err(error) = eligibility::validate_input(&submission) {

@@ -10,6 +10,10 @@ use super::{
 use crate::chunk::*;
 use std::cell::RefCell;
 
+fn retains_transparent_sort(settings: Option<&crate::EnhancedRendering>) -> bool {
+    settings.is_none_or(|settings| !settings.reflection_capture)
+}
+
 pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     snapshot: &TransparentOrderedSnapshot,
     resident_allocations: impl IntoIterator<Item = &'a GpuChunkAllocation>,
@@ -87,7 +91,15 @@ fn write_transparent_refs(
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_transparent_sorts(
-    views: Query<(Entity, &ExtractedView, &RenderVisibleEntities), With<ExtractedCamera>>,
+    views: Query<
+        (
+            Entity,
+            &ExtractedView,
+            &RenderVisibleEntities,
+            Option<&crate::EnhancedRendering>,
+        ),
+        With<ExtractedCamera>,
+    >,
     instances: Query<&ChunkRenderInstance>,
     diagnostic_instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
@@ -228,7 +240,11 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
         runtime.prune_request_metadata();
     }
 
-    let mut visible_views = views.iter().collect::<Vec<_>>();
+    let mut visible_views = views
+        .iter()
+        .filter(|(_, _, _, settings)| retains_transparent_sort(*settings))
+        .map(|(entity, view, visible, _)| (entity, view, visible))
+        .collect::<Vec<_>>();
     visible_views.sort_by_key(|(entity, _, _)| *entity);
     if visible_views.len() > MAX_TRANSPARENT_VIEWS {
         bevy::log::warn!(
@@ -524,5 +540,32 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             bytemuck::bytes_of(&command),
         );
         runtime.last_indirect_identity = Some(identity);
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    #[test]
+    fn reflection_capture_cannot_take_gameplay_transparent_sort() {
+        let mut world = World::new();
+        let capture = world
+            .spawn(crate::EnhancedRendering {
+                reflection_capture: true,
+                ..Default::default()
+            })
+            .id();
+        let enhanced = world.spawn(crate::EnhancedRendering::default()).id();
+        let vanilla = world.spawn_empty().id();
+        let mut query = world.query::<(Entity, Option<&crate::EnhancedRendering>)>();
+        let retained: Vec<_> = query
+            .iter(&world)
+            .filter(|(_, settings)| retains_transparent_sort(*settings))
+            .map(|(entity, _)| entity)
+            .collect();
+        assert!(!retained.contains(&capture));
+        assert!(retained.contains(&enhanced));
+        assert!(retained.contains(&vanilla));
     }
 }

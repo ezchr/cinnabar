@@ -37,6 +37,7 @@ fn ocean_surface(key: SubChunkKey) -> ChunkRenderInstance {
         }
     }
     ChunkRenderInstance {
+        light_emitters: Arc::from([]),
         cube_layout: CubeQuadLayout::default(),
         key,
         origin: chunk_origin(key),

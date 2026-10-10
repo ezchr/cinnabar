@@ -381,14 +381,13 @@ fn model_tint_pixels_match_fragment_biome_reference() {
     let materials = gpu.words(&material_words(), storage);
     let records = gpu.words(&record_words, storage);
     let tints = gpu.words(bytemuck::cast_slice(&tint_rows()), storage);
-    let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let animations = gpu.words(
         &[0, 2, 4, assets::ANIMATION_FLAG_BLEND, 1.0_f32.to_bits()],
         storage,
     );
     let frames = gpu.words(&[0, 1], storage);
     let clock = gpu.words(
-        &[1, 0.25_f32.to_bits(), 0, 0],
+        &crate::material_shader::world_uniform_words(&[1, 0.25_f32.to_bits(), 0, 0]),
         uniform | wgpu::BufferUsages::COPY_DST,
     );
     let templates = gpu.words(&template_words(), storage);
@@ -429,10 +428,6 @@ fn model_tint_pixels_match_fragment_biome_reference() {
         (12, templates.as_entire_binding()),
         (13, geometry.as_entire_binding()),
         (15, atmosphere.as_entire_binding()),
-        (
-            crate::material_shader::BIOME_QUERY_TABLES_BINDING,
-            query_tables.as_entire_binding(),
-        ),
         (20, lightmap.as_entire_binding()),
     ]
     .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });

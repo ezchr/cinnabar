@@ -34,7 +34,7 @@ pub(super) fn queue_actors(
         .executed_instances
         .store(0, std::sync::atomic::Ordering::Relaxed);
     let view_count = params.views.iter().count();
-    if params.gpu.instance_count == 0 {
+    if params.gpu.instance_count == 0 || params.gpu.main_spans.is_empty() {
         params.witness.observe_queue(ActorQueueWitness {
             prepared_instances: params.gpu.instance_count,
             bind_group: params.gpu.bind_group.is_some(),
@@ -65,7 +65,12 @@ pub(super) fn queue_actors(
         let this_tick = next_tick.get() + 1;
         next_tick.set(this_tick);
         let mut view_queued = false;
-        if params.gpu.spans.iter().any(|span| !blended(span.material)) {
+        if params
+            .gpu
+            .main_spans
+            .iter()
+            .any(|span| !blended(span.material))
+        {
             phase.add(
                 Opaque3dBatchSetKey {
                     draw_function,
@@ -92,7 +97,7 @@ pub(super) fn queue_actors(
             let rangefinder = view.rangefinder3d();
             for (index, span) in params
                 .gpu
-                .spans
+                .main_spans
                 .iter()
                 .enumerate()
                 .filter(|(_, span)| blended(span.material))
@@ -148,10 +153,10 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
             intended_view.expect("queued view exists"),
-            &params.gpu.spans,
+            &params.gpu.main_spans,
         );
     }
     params.witness.observe_queue(ActorQueueWitness {
@@ -167,6 +172,7 @@ pub(super) type DrawActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<false>,
     ),
 >;
@@ -176,6 +182,7 @@ pub(crate) type DrawTransparentActorCommands = crate::gpu_timing::GpuDrawSpan<
     (
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
         DrawActors<true>,
     ),
 >;
@@ -222,12 +229,12 @@ impl<P: PhaseItem, const BLENDED: bool> RenderCommand<P> for DrawActors<BLENDED>
             else {
                 return RenderCommandResult::Skip;
             };
-            let Some(spans) = gpu.spans.get(range.start as usize..range.end as usize) else {
+            let Some(spans) = gpu.main_spans.get(range.start as usize..range.end as usize) else {
                 return RenderCommandResult::Skip;
             };
             spans
         } else {
-            gpu.spans.as_slice()
+            gpu.main_spans.as_slice()
         };
         for span in spans
             .iter()
