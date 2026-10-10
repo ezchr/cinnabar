@@ -125,6 +125,11 @@ pub fn project_container_cell(identity: &ContainerIdentity, slot: u16) -> Option
         Some(ARMOR_WINDOW_ID) => return armor_cell(slot),
         _ => {}
     }
+    // Slot 0 of the personal UI inventory is the cursor, whatever name rides
+    // along: Geyser sets and clears the cursor this way, with the default name.
+    if slot == 0 && is_personal_ui_storage(identity) {
+        return Some(CanonicalCell::Cursor);
+    }
     match identity.slot_type {
         Some(CONTAINER_NAME_CRAFT_INPUT) => {
             let index = u8::try_from(slot.checked_sub(28)?).ok()?;
@@ -370,6 +375,15 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn personal_ui_slot_zero_is_the_cursor() {
+        let ui = identity(124, Some(0));
+        assert_eq!(project_container_cell(&ui, 0), Some(CanonicalCell::Cursor));
+        assert_ne!(project_container_cell(&ui, 1), Some(CanonicalCell::Cursor));
+        // Only the exact personal UI identity: another window's slot 0 is its own.
+        assert_eq!(project_container_cell(&identity(123, Some(0)), 0), None);
     }
 
     #[test]
