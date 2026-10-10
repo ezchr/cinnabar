@@ -299,7 +299,10 @@ fn personal_ui_slot_zero_update_sets_and_clears_the_cursor() {
         })
     };
     ledger.apply(&cursor(stack(7, 1)));
-    assert_eq!(ledger.cursor_stack().map(|held| held.stack_network_id), Some(7));
+    assert_eq!(
+        ledger.cursor_stack().map(|held| held.stack_network_id),
+        Some(7)
+    );
     ledger.apply(&cursor(NetworkItemStack::default()));
     assert_eq!(ledger.cursor_stack(), None);
     assert_eq!(ledger.skipped_unknown_containers(), 0);
